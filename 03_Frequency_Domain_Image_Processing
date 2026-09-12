@@ -1,0 +1,185 @@
+clc;
+clear;
+close all;
+
+pkg load image;
+
+% Read input image
+filename = 'Input_image.png';
+img = imread(filename);
+
+% Convert to grayscale if image is RGB
+if ndims(img) == 3
+    gray_img = rgb2gray(img);
+else
+    gray_img = img;
+end
+
+% Convert image to double
+gray_img = double(gray_img);
+
+% Get image dimensions
+[M, N] = size(gray_img);
+
+fprintf('\n');
+fprintf('----------------------------\n');
+fprintf('FREQUENCY DOMAIN IMAGE PROCESSING\n');
+fprintf('----------------------------\n');
+fprintf('Image Size: %d x %d\n', M, N);
+
+% Display original image and histogram
+figure(1);
+
+subplot(2,2,1);
+imshow(uint8(gray_img));
+title('Original Image');
+
+subplot(2,3,2);
+imhist(uint8(gray_img));
+title('Original Histogram');
+
+% Center the image before applying DFT
+[x, y] = meshgrid(0:N-1, 0:M-1);
+center_matrix = (-1).^(x + y);
+centered_img = gray_img .* center_matrix;
+
+subplot(2,3,3);
+imshow(centered_img, []);
+title('Pre-processing: Centered Image');
+
+% Save centered image
+centered_display = mat2gray(centered_img);
+imwrite(uint8(centered_display * 255), ...
+        '01_Preprocessed_Centered.png');
+
+% Apply 2-D DFT
+F = fft2(centered_img);
+
+fprintf('\nDFT completed successfully.\n');
+
+% Display real and imaginary parts
+subplot(2,2,2);
+imshow(real(F), []);
+title('DFT - Real Part');
+
+subplot(2,2,3);
+imshow(imag(F), []);
+title('DFT - Imaginary Part');
+
+% Calculate magnitude spectrum
+magnitude = abs(F);
+log_magnitude = log(1 + magnitude);
+
+subplot(2,3,6);
+imshow(log_magnitude, []);
+title('DFT Magnitude Spectrum');
+
+% Save DFT magnitude spectrum
+spectrum_display = mat2gray(log_magnitude);
+imwrite(uint8(spectrum_display * 255), ...
+        '02_DFT_Magnitude_Spectrum.png');
+
+% Display frequency-domain results
+figure;
+
+subplot(2,2,1);
+imshow(gray_img, []);
+title('Original Image');
+
+subplot(2,2,2);
+imshow(centered_img, []);
+title('Centered Image');
+
+subplot(2,2,3);
+imshow(log_magnitude, []);
+title('Log Magnitude Spectrum');
+
+subplot(2,2,4);
+mesh(log_magnitude);
+title('3-D DFT Spectrum');
+xlabel('u');
+ylabel('v');
+zlabel('Magnitude');
+
+% Apply Inverse DFT
+idft_centered = ifft2(F);
+idft_centered = real(idft_centered);
+
+% Shift image back
+idft_final = idft_centered .* center_matrix;
+
+% Keep pixel values between 0 and 255
+idft_final = max(min(idft_final, 255), 0);
+
+% Calculate reconstruction error
+error_image = gray_img - idft_final;
+MSE_IDFT = mean(error_image(:).^2);
+
+fprintf('IDFT reconstruction completed successfully.\n');
+fprintf('IDFT Reconstruction MSE: %.6f\n', MSE_IDFT);
+
+% Save reconstructed image
+imwrite(uint8(idft_final), ...
+        '03_IDFT_Reconstructed.png');
+
+% Create frequency-domain filter coordinates
+u = 0:M-1;
+v = 0:N-1;
+
+u = u - floor(M/2);
+v = v - floor(N/2);
+
+[V, U] = meshgrid(v, u);
+D = sqrt(U.^2 + V.^2);
+
+% Filter parameters
+Do = 40;
+order = 2;
+
+fprintf('\n');
+fprintf('Filter Parameters\n');
+fprintf('Cut-off Frequency D0 = %d\n', Do);
+fprintf('Butterworth Order = %d\n', order);
+
+% Ideal Low Pass Filter
+H_ILPF = zeros(M, N);
+H_ILPF(D <= Do) = 1;
+
+% Butterworth Low Pass Filter
+H_BWLPF = 1 ./ (1 + (D ./ Do).^(2 * order));
+
+% Gaussian Low Pass Filter
+H_GLPF = exp(-(D.^2) ./ (2 * Do^2));
+
+% Ideal High Pass Filter
+H_IHPF = zeros(M, N);
+H_IHPF(D > Do) = 1;
+
+% Butterworth High Pass Filter
+H_BWHPF = 1 ./ (1 + (Do ./ D).^(2 * order));
+
+% Gaussian High Pass Filter
+H_GHPF = 1 - exp(-(D.^2) ./ (2 * Do^2));
+H_GHPF(D == 0) = 0;
+
+% Apply Ideal Low Pass Filter
+G_ILPF = F .* H_ILPF;
+
+% Calculate filtered spectrum
+log_G_ILPF = log(1 + abs(G_ILPF));
+
+% Inverse DFT of filtered image
+ILPF_centered = real(ifft2(G_ILPF));
+
+% Shift image back
+g_ILPF_centered = ILPF_centered .* center_matrix;
+
+% Keep pixel values between 0 and 255
+g_ILPF = max(min(g_ILPF_centered, 255), 0);
+
+% Save Ideal LPF result
+imwrite(uint8(g_ILPF), ...
+        '10_Ideal_LPF_Smoothing.png');
+
+fprintf('Ideal Low Pass Filtering completed successfully.\n');
+fprintf('Output saved as 10_Ideal_LPF_Smoothing.png\n');
